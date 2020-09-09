@@ -1,0 +1,8 @@
+aiofiles==0.5.0
+cassandra-driver==3.24.0
+cdlib==0.1.8
+angel-cd==1.0.2
+fastapi==0.60.1
+networkx==2.3
+python-igraph==0.8.2
+uvicorn==0.11.6

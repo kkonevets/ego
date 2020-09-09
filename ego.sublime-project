@@ -1,0 +1,55 @@
+{
+    "folders": [
+    {
+        "path": "."
+    }],
+    "settings":
+    {
+        "rsync_ssh":
+        {
+            "excludes": [
+                ".env",
+                ".git*",
+                "_build",
+                "blib",
+                "dist",
+                "Build",
+                "build",
+                "index",
+                "*.so",
+                "model",
+                "__pycache__",
+                ".ipynb_checkpoints",
+                "target",
+                "CMakeCache.txt",
+                "build",
+                "CMakeFiles",
+                "cmake_install.cmake",
+                "MANIFEST"
+            ],
+            "options": [
+                "--delete"
+            ],
+            "remotes":
+            {
+                "ego": [
+                {
+                    "enabled": 1,
+                    "remote_host": "server3",
+                    "remote_path": "/data/1/ego",
+                    "remote_port": 1022,
+                    "remote_user": "konevec"
+                },
+                {
+                    "enabled": 1,
+                    "remote_host": "server1",
+                    "remote_path": "/data/ego",
+                    "remote_port": 1022,
+                    "remote_user": "konevec"
+                }]
+            },
+            "sync_on_save": true
+        }
+    }
+
+}

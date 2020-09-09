@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <title>Adjacency matrix clustering</title>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+</head>
+<style>
+    .column {
+      float: left;
+      margin-right: 10px;
+    }
+
+    .row:after {
+      content: "";
+      display: table;
+      clear: both;
+    }
+    .loader {
+      margin-top: 5%;
+      margin-left: 5%;
+      border: 16px solid #f3f3f3;
+      border-radius: 50%;
+      border-top: 16px solid #3498db;
+      width: 120px;
+      height: 120px;
+      -webkit-animation: spin 2s linear infinite; /* Safari */
+      animation: spin 2s linear infinite;
+    }
+
+    /* Safari */
+    @-webkit-keyframes spin {
+      0% { -webkit-transform: rotate(0deg); }
+      100% { -webkit-transform: rotate(360deg); }
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }    
+</style>
+
+<body>
+    <div style="display:none;height:50px;width:400px;white-space:pre-wrap;" id="popup"></div>
+    <form id="submitForm">
+        <label for="account">snid@platform: </label>
+        <input type="text" id="account" name="account" style="width:200px">
+        <input type="button" value="Submit" onclick="onSubmit(); return false;" />
+        <input type="button" id="dwn-btn" value="Clusters" onclick="onClusters(); return false;" />
+        <input type="button" id="dwn-btn" value="Raw data" onclick="onRawData(); return false;" />
+        <br></br>
+        <div class="row" id="alg_row">
+            <label for="alg" class="column">Algorithm:</label>
+            <select name="algs" id="alg" onchange="onAlgChange(this.options[this.selectedIndex].value)" class="column">
+            </select>
+        </div>
+    </form>
+    <div class="loader" id="loader" style="display:none;"></div>
+    <canvas width="870" height="870" style="border:1px solid #c3c3c3;" id="canvas">
+        Your browser does not support the canvas element.
+    </canvas>
+    <script>
+    var canvas = document.getElementsByTagName('canvas')[0];
+    var data = null;
+
+    var algs_info = {
+        "gmm": ["greedy modularity maximization"],
+        "kclique": ["k-clique percolation (overlap)", ["k", "smallest clique size", [3, 4, 5, 6, 7, 8, 9, 10, 11, 12]]],
+        "lprop": ["label propagation"],
+        // "lprop_async": ["async label propagation"],
+        "fluid": ["fluid communities", ["k", "min number of communities", [2, 3, 4, 5, 6, 7, 8, 9, 10]],
+            ["max_iter", "maximum iterations", [15, 20, 30, 50, 100, 200, 500, 1000]]
+        ],
+        //// "girvan_newman": ["girvan newman", ["k", "", [20, 30, 40, 50, 60, 70]]],
+        "infomap": ["infomap", ["trials", "trials", [10, 20, 30, 50, 100, 250, 500]]],
+        "leig": ["leading eigenvector",
+            ["clusters", "clusters", ["auto", 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]]
+        ],
+        "multilevel": ["multilevel, Blondel"],
+        // "optmod": ["optimal modularity"],
+        "edge_betweenness": ["edge betweenness",
+            ["clusters", "clusters", ["auto", 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]]
+        ],
+        // "spinglass": ["spinglass",
+        //     ["update_rule", "update rule", ["config", "simple"]],
+        //     ["start_temp", "starting temperature", [1, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1, 0.05]],
+        //     ["stop_temp", "stop temperature", [0.2, 0.1, 0.05, 0.01, 0.005]]
+        // ],
+        "walktrap": ["walktrap", ["steps", "random walk steps", [4, 5, 6, 7, 8, 9, 10]]],
+        "leiden": ["leiden",
+            ["objective_function", 'objective', ["CPM", "modularity"]],
+            ["resolution_parameter", "resolution", [1, .5, .25, .1, .05, .035, .025, .0125, .01, .005, .0025, .001]],
+            ["n_iterations", "iterations", [2, 5, 10, 20, 50, 100]]
+        ],
+        "sbm": ["stochastic blockmodel",
+            ["deg_corr", "degree correction", ["True", "False"]],
+            ["B_min", "min # of blocks", ['auto', 2, 3, 4, 5, 6, 7, 8, 9, 10]],
+            ["B_max", "max # of blocks", ['auto', 2, 3, 4, 5, 6, 7, 8, 9, 10]]
+        ],
+        "sbm_nested": ["stochastic blockmodel nested (overlap)",
+            ["level", "level", [2, 3, 4, 5, 6, 7, 8, 9, 10]],
+            ["deg_corr", "degree correction", ["True", "False"]],
+            ["B_min", "min # of blocks", ['auto', 2, 3, 4, 5, 6, 7, 8, 9, 10]],
+            ["B_max", "max # of blocks", ['auto', 2, 3, 4, 5, 6, 7, 8, 9, 10]]
+        ],
+        "hlc": ["hierarchical link clustering (overlap)",
+            ["min_size", "min cluster size", [3, 4, 5, 6, 7, 8, 9, 10, 15, 20, 30, 50]]
+        ],
+        "angel": ["angel (overlap)", ["threshold", "threshold", [.1, .2, .3, .4, .5, .6, .7, .8, .9, 1]],
+            ["min_community_size", "min cluster size", [3, 4, 5, 6, 7, 8, 9, 10, 15, 20]]
+        ],
+        // "congo": ["congo (overlap)", ["number_communities", "min number of clusters", [2, 3, 4, 5, 6, 7, 8, 9, 10]],
+        //     ["height", "lengh of the longest shortest paths", [2, 3, 4, 5, 6, 7, 8, 9, 10]]
+        // ]
+        "egonet_splitter": ["egonet splitter (overlap)",
+            ["resolution", "resolution", [1, .9, .8, .7, .6, .5, .4, .4, .25, .1, .05, .035, .025, .0125, .01, .005, .0025, .001]],
+        ],
+        "lfm": ["lfm (overlap)", ["alpha", "alpha", [.1, .2, .3, .4, .5, .6, .7, .8, .9]]],
+        "multicom": ["multicom (overlap)"],
+        "slpa": ["slpa (overlap)",
+            ["t", "number of iterations", [20, 30, 50, 100, 200, 500]],
+            ["r", "threshold", [.001, .025, .05, .1, .2, .3, .4, .5, .6]]
+        ],
+        "big_clam": ["big clam (overlap)",
+            ["c", "num clusters", ['auto', 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20, 30, 50]],
+            ["xc", "max auto clusters", [5, 10, 15, 20, 25, 30, 35, 40, 45, 50]]
+        ],
+        "danmf": ["danmf"],
+        "nmnf": ["nmnf",
+            ["clusters", "min number of clusters", [2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20]],
+            ["dimensions", "dimensions", [128, 64, 32]],
+            // ["lambd", "KKT penalty", [.1, .2, .3, .4, .5]],
+            // ["eta", "similarity mixing", [1, 2, 3, 5, 6, 7, 8, 10, 15, 13]]
+        ],
+        // "node_perception": ["node_perception (overlap)",
+        //     ["threshold", "merge threshold", [.1, .2, .25, .3, .4, .5, .6, .7, .8, .9, 1]],
+        //     ["overlap_threshold", "overlap threshold", [.1, .2, .25, .3, .4, .5, .6, .7, .8, .9, 1]],
+        //     ["min_comm_size", "min community size", [3, 4, 5, 6, 7, 8, 9, 10, 15, 20, 30, 50]]
+        // ]
+        "nnsed": ["nnsed"],
+        "GEMSEC": ["GEMSEC",
+            ["walk_number", "random walks", [5, 6, 7, 8, 9, 10]],
+            ["walk_length", "walk length", [80, 60, 40, 20]],
+            // ["gamma", "gamma", [10, 1, .5, .1, .05, .01]],
+            ["clusters", "min number of clusters", [2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20]]
+        ],
+        "EdMot": ["EdMot",
+            ["component_count", "motif components", [2, 3, 4, 5, 6, 7]],
+            ["cutoff", "Motif edge cut-off", [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 50, 100]]
+        ],
+        "demon": ["demon (overlap)",
+            ["min_com_size", "min community size", [3, 4, 5, 6, 7, 8, 9, 10, 15, 20, 30, 50]],
+            ["epsilon", "epsilon", [0, .05, .1, .15, .2, .25, .3, .35, .4, .5, .6, .7, .8, .9, 1]]
+        ]
+    };
+
+    var alg = document.getElementById("alg");
+    for (let [key, value] of Object.entries(algs_info)) {
+        alg.options[alg.options.length] = new Option(value[0], key);
+    }
+
+    function download(filename, text) {
+        var element = document.createElement('a');
+        element.setAttribute('href', 'data:text/plain;charset=utf-8,' + encodeURIComponent(text));
+        element.setAttribute('download', filename);
+        element.style.display = 'none';
+        document.body.appendChild(element);
+        element.click();
+        document.body.removeChild(element);
+    }
+
+    function generateColors(ncolors, naux_colors) {
+        if (ncolors < 1) ncolors = 1; // defaults to one color - avoid divide by zero
+        var colors = [];
+        for (var i = 0; i < ncolors - naux_colors; i++) {
+            colors.push("hsl(" + (i * (360 / ncolors) % 360) + ",100%,50%)");
+        }
+        if (naux_colors > 0) {
+            colors.push("#808080"); // clusters are different
+            if (naux_colors > 1) {
+                colors.push("#000000"); // many to many relation
+            }
+        }
+        return colors;
+    }
+
+    document.getElementById('submitForm').onkeydown = function(e) {
+        if (e.keyCode == 13) { // Enter key
+            onSubmit()
+        }
+    };
+
+    function onAlgChange(alg) {
+        // delete all params
+        var parentDiv = document.getElementById("alg_row");
+        var children = Array.from(parentDiv.children);
+        for (var child of children.slice(2)) {
+            parentDiv.removeChild(child);
+        }
+
+        for (var info of algs_info[alg].slice(1)) {
+            var param = document.createElement("select");
+            param.setAttribute("id", info[0]);
+            param.setAttribute("class", "column");
+
+            var newlabel = document.createElement("label");
+            newlabel.innerHTML = info[1] + ":";
+            newlabel.setAttribute("for", info[0]);
+            newlabel.setAttribute("class", "column");
+
+            for (var value of info[2]) {
+                param.options[param.options.length] = new Option(value, value);
+            }
+
+            // param.value = info[3]; // default value
+
+            parentDiv.appendChild(newlabel);
+            parentDiv.appendChild(param);
+        }
+    }
+
+    function onSubmit() {
+        var account = document.getElementById("submitForm").children[1].value;
+        if (account != "") {
+            localStorage.setItem("account", account);
+
+            var alg_values = [];
+            var children = document.getElementById("alg_row").getElementsByTagName("select");
+            for (var param of children) {
+                alg_values.push(param.value);
+            }
+
+            localStorage.setItem("alg_values", JSON.stringify(alg_values));
+            window.location.reload(true);
+        }
+    }
+
+    function onClusters() {
+        if (window.data == undefined) {
+            return;
+        }
+        var splited = window.data.platform.split(".");
+        if (splited.length == 0) {
+            return;
+        }
+        var tab = window.open('_blank');
+
+        var nodes = window.data.nodes;
+        var info = window.data.info;
+        var groups = {};
+        window.data.groups.map(function(gs, i) {
+            for (var g of gs) {
+                var gnodes = groups[g] || [];
+                gnodes.push(i);
+                groups[g] = gnodes;
+            }
+        });
+
+        for (let [g, gnodes] of Object.entries(groups)) {
+            tab.document.write(`cluster_${g}`);
+            tab.document.write("<br />");
+            for (var i of gnodes) {
+                var line = `${nodes[i]}, ${info[i]}\n`;
+                tab.document.write(line);
+                tab.document.write("<br />");
+            }
+            tab.document.write("<br />");
+        }
+
+        tab.document.close(); // to finish loading the page
+        tab.focus();
+    }
+
+    function onRawData() {
+        if (window.data == undefined) {
+            return;
+        }
+        var text = JSON.stringify(window.data);
+        var text = `<pre style="word-wrap: break-word; white-space: pre-wrap;">${text}</pre>`;
+        var tab = window.open('_blank');
+        tab.document.write(text); // where 'html' is a variable containing your HTML
+        tab.document.close(); // to finish loading the page
+        tab.focus();
+    }
+
+    function order_xy(x, y) {
+        var x = Math.floor(x);
+        var y = Math.floor(y);
+        if (x <= y) {
+            return [x, y];
+        } else {
+            return [y, x];
+        }
+    }
+
+    function dataURL(account) {
+        var arr = window.location.href.split("/");
+        var domain_port = arr[0] + "//" + arr[2];
+        var url = `${domain_port}/${account}/?`;
+        var kvp = [];
+        var children = document.getElementById("alg_row").getElementsByTagName("select");
+        for (var param of children) {
+            kvp.push(param.id);
+            kvp.push(param.value);
+        }
+        return url + kvp.slice(0, 2).join('=') + '&params=' + kvp.slice(2).join(',');
+    }
+
+    window.onload = function() {
+        canvas.width = 870;
+        var style = window.getComputedStyle(document.body);
+        var margin = parseInt(style["margin-top"], 10) + parseInt(style["margin-bottom"], 10);
+        canvas.height = window.innerHeight - document.getElementById("submitForm").offsetHeight - margin - 10;
+
+        var ctx = canvas.getContext('2d');
+        trackTransforms(ctx);
+
+        var account = localStorage.getItem("account");
+        if (account == undefined) {
+            return;
+        }
+        document.getElementById("submitForm").children[1].value = account;
+
+        var alg_values = JSON.parse(localStorage.getItem("alg_values"));
+        onAlgChange(alg_values[0]);
+        var children = document.getElementById("alg_row").getElementsByTagName("select");
+        for (var i in children) {
+            var param = children[i];
+            param.value = alg_values[i];
+        }
+
+        function json_Done() {
+            $('#loader').hide();
+            $('#canvas').show();
+        }
+
+        jQuery.ajaxSetup({
+            beforeSend: function() {
+                $('#canvas').hide();
+                $('#loader').show();
+            },
+            complete: json_Done,
+            error: json_Done,
+        });
+
+        $.ajax({
+            url: dataURL(account),
+            async: true,
+            dataType: 'json',
+            success: data_loaded
+        }).fail(function(XMLHttpRequest, textStatus, errorThrown) {
+            alert(`Error: ${errorThrown}, ${JSON.parse(XMLHttpRequest.responseText)['detail']}`);
+        });
+
+        function data_loaded(data) {
+            console.log(`number of nodes ${data.nodes.length}`);
+            window.data = data;
+
+            var colors = generateColors(data.ncolors, data.naux_colors);
+
+            var xy2ix = {};
+            data.links.forEach(function(edge, i) {
+                xy2ix[order_xy(edge[0], edge[1])] = i;
+            });
+
+            function redraw() {
+                // Clear the entire canvas
+                var p1 = ctx.transformedPoint(0, 0);
+                var p2 = ctx.transformedPoint(canvas.width, canvas.height);
+                ctx.clearRect(p1.x, p1.y, p2.x - p1.x, p2.y - p1.y);
+
+                ctx.lineWidth = 0.1;
+                var size = data.nodes.length;
+                ctx.strokeStyle = '#808080';
+                ctx.strokeRect(0, 0, size, size);
+
+                data.links.forEach(e => {
+                    ctx.fillStyle = colors[e[2]];
+                    ctx.fillRect(e[0], e[1], 1, 1);
+                    ctx.fillRect(e[1], e[0], 1, 1);
+                });
+
+            }
+            redraw();
+
+            var lastX = canvas.width / 2,
+                lastY = canvas.height / 2;
+            var dragStart, dragged;
+            canvas.addEventListener('mousedown', function(evt) {
+                document.body.style.mozUserSelect = document.body.style.webkitUserSelect = document.body.style.userSelect = 'none';
+                lastX = evt.offsetX || (evt.pageX - canvas.offsetLeft);
+                lastY = evt.offsetY || (evt.pageY - canvas.offsetTop);
+                dragStart = ctx.transformedPoint(lastX, lastY);
+                dragged = false;
+            }, false);
+            canvas.addEventListener('mousemove', function(evt) {
+                lastX = evt.offsetX || (evt.pageX - canvas.offsetLeft);
+                lastY = evt.offsetY || (evt.pageY - canvas.offsetTop);
+                dragged = true;
+                var pt = ctx.transformedPoint(lastX, lastY);
+                if (dragStart) {
+                    ctx.translate(pt.x - dragStart.x, pt.y - dragStart.y);
+                    redraw();
+                }
+                // console.log(lastX, lastY);
+                var ix = xy2ix[order_xy(pt.x, pt.y)];
+                if (ix != undefined) {
+                    var edge = data.links[ix];
+
+                    var msg = `${data.nodes[edge[0]]}, ${data.info[edge[0]]} \n${data.nodes[edge[1]]}, ${data.info[edge[1]]}`;
+                    $("#popup").empty();
+                    $("#popup").append("<div>" + msg + "</div>");
+                    $('#popup').css('left', evt.pageX - 10); // <<< use pageX and pageY
+                    $('#popup').css('top', evt.pageY + 20);
+                    $('#popup').css('display', 'inline');
+                    $("#popup").css("position", "absolute"); // <<< also make it absolute!
+                } else {
+                    $("#popup").hide();
+                }
+            }, false);
+            canvas.addEventListener('mouseup', function(evt) {
+                dragStart = null;
+                if (!dragged) zoom(evt.shiftKey ? -1 : 1);
+            }, false);
+
+            var scaleFactor = 1.1;
+            var zoom = function(clicks) {
+                var pt = ctx.transformedPoint(lastX, lastY);
+                ctx.translate(pt.x, pt.y);
+                var factor = Math.pow(scaleFactor, clicks);
+                ctx.scale(factor, factor);
+                ctx.translate(-pt.x, -pt.y);
+                redraw();
+            }
+
+            var handleScroll = function(evt) {
+                var delta = evt.wheelDelta ? evt.wheelDelta / 40 : evt.detail ? -evt.detail : 0;
+                if (delta) zoom(delta);
+                return false;
+            };
+            canvas.addEventListener('DOMMouseScroll', handleScroll, false);
+            canvas.addEventListener('mousewheel', handleScroll, { passive: true });
+
+            localStorage.removeItem("account");
+        }
+    };
+
+
+    function trackTransforms(ctx) {
+        var xform = new DOMMatrix();
+        ctx.getTransform = function() { return xform; };
+
+        var savedTransforms = [];
+        var save = ctx.save;
+        ctx.save = function() {
+            savedTransforms.push(xform.translateSelf(0, 0));
+            return save.call(ctx);
+        };
+        var restore = ctx.restore;
+        ctx.restore = function() {
+            xform = savedTransforms.pop();
+            return restore.call(ctx);
+        };
+
+        var scale = ctx.scale;
+        ctx.scale = function(sx, sy) {
+            xform = xform.scaleSelf(sx, sy);
+            return scale.call(ctx, sx, sy);
+        };
+        var rotate = ctx.rotate;
+        ctx.rotate = function(radians) {
+            xform = xform.rotateSelf(radians * 180 / Math.PI);
+            return rotate.call(ctx, radians);
+        };
+        var translate = ctx.translate;
+        ctx.translate = function(dx, dy) {
+            xform = xform.translateSelf(dx, dy);
+            return translate.call(ctx, dx, dy);
+        };
+        var transform = ctx.transform;
+        ctx.transform = function(a, b, c, d, e, f) {
+            var m2 = new DOMMatrix();
+            m2.a = a;
+            m2.b = b;
+            m2.c = c;
+            m2.d = d;
+            m2.e = e;
+            m2.f = f;
+            xform = xform.multiplySelf(m2);
+            return transform.call(ctx, a, b, c, d, e, f);
+        };
+        var setTransform = ctx.setTransform;
+        ctx.setTransform = function(a, b, c, d, e, f) {
+            xform.a = a;
+            xform.b = b;
+            xform.c = c;
+            xform.d = d;
+            xform.e = e;
+            xform.f = f;
+            return setTransform.call(ctx, a, b, c, d, e, f);
+        };
+        var pt = new DOMPoint();
+        ctx.transformedPoint = function(x, y) {
+            pt.x = x;
+            pt.y = y;
+            return pt.matrixTransform(xform.inverse());
+        }
+    }
+    </script>
+</body>
+
+</html>
